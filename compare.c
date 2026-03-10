@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <math.h>
 
 static void free_filedata(FileData *file);
 
@@ -332,18 +333,93 @@ char normalize_char(char c) {
 }
 
 double compute_jsd(const FileData *a, const FileData *b) {
-    (void)a;
-    (void)b;
-    return 0.0;
+    const WordNode *pa;
+    const WordNode *pb;
+    double kld_a = 0.0;
+    double kld_b = 0.0;
+
+    if (!a || !b) {
+        return 0.0;
+    }
+
+    pa = a->word_list;
+    pb = b->word_list;
+    while (pa || pb) {
+        double fa = 0.0;
+        double fb = 0.0;
+        int cmp;
+
+        if (pa && pb) {
+            cmp = strcmp(pa->word, pb->word);
+        } else if (pa) {
+            cmp = -1;
+        } else {
+            cmp = 1;
+        }
+
+        if (cmp == 0) {
+            fa = pa->freq;
+            fb = pb->freq;
+            pa = pa->next;
+            pb = pb->next;
+        } else if (cmp < 0) {
+            fa = pa->freq;
+            fb = 0.0;
+            pa = pa->next;
+        } else {
+            fa = 0.0;
+            fb = pb->freq;
+            pb = pb->next;
+        }
+
+        if (fa > 0.0 || fb > 0.0) {
+            double f = 0.5 * (fa + fb);
+            if (fa > 0.0) {
+                kld_a += fa * log2(fa / f);
+            }
+            if (fb > 0.0) {
+                kld_b += fb * log2(fb / f);
+            }
+        }
+    }
+
+    return sqrt(0.5 * kld_a + 0.5 * kld_b);
 }
 
 Comparison *build_comparisons(FileData *files, size_t file_count, size_t *comparison_count) {
-    (void)files;
-    (void)file_count;
-    if (comparison_count) {
-        *comparison_count = 0;
+    size_t n;
+    size_t idx = 0;
+    size_t total;
+    Comparison *comps;
+
+    if (!files || !comparison_count) {
+        return NULL;
     }
-    return NULL;
+
+    if (file_count < 2) {
+        fprintf(stderr, "Error: need at least two files to compare.\n");
+        exit(1);
+    }
+
+    n = file_count;
+    total = (n * (n - 1)) / 2;
+    comps = (Comparison *)calloc(total, sizeof(Comparison));
+    if (!comps) {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = i + 1; j < n; j++) {
+            comps[idx].file1 = &files[i];
+            comps[idx].file2 = &files[j];
+            comps[idx].combined_word_count = files[i].total_words + files[j].total_words;
+            comps[idx].jsd = compute_jsd(&files[i], &files[j]);
+            idx++;
+        }
+    }
+
+    *comparison_count = total;
+    return comps;
 }
 
 void print_results(const Comparison *comps, size_t count) {
