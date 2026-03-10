@@ -40,8 +40,14 @@ WordNode *insert_or_increment_word(WordNode **head, const char *word);
 /* Analysis phase */
 double compute_jsd(const FileData *a, const FileData *b);
 Comparison *build_comparisons(FileData *files, size_t file_count, size_t *comparison_count);
+void sort_comparisons(Comparison *comps, size_t count);
 
 /* Output */
 void print_results(const Comparison *comps, size_t count);
+
+/* Cleanup */
+void free_word_list(WordNode *head);
+void free_filedata_array(FileData *files, size_t file_count);
+void free_comparisons(Comparison *comps);
 
 #endif /* COMPARE_H */
