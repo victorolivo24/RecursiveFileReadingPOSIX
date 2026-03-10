@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     Comparison *comps = NULL;
     size_t comp_count = 0;
 
+    /* Example: collect_files uses argv[1..] as file/dir inputs. */
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <file1> <file2> [file3 ...]\n", argv[0]);
         return 1;

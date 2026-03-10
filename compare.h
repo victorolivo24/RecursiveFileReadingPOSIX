@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#define DEFAULT_SUFFIX ".txt"
+
 /* Core data structures */
 typedef struct WordNode {
     char *word;

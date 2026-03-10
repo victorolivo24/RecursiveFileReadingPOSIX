@@ -1,16 +1,150 @@
 #include "compare.h"
 
 #include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
+static void free_filedata(FileData *file);
+
+static int has_suffix(const char *name, const char *suffix) {
+    size_t nlen;
+    size_t slen;
+
+    if (!name || !suffix) {
+        return 0;
+    }
+    nlen = strlen(name);
+    slen = strlen(suffix);
+    if (nlen < slen) {
+        return 0;
+    }
+    return strcmp(name + (nlen - slen), suffix) == 0;
+}
+
+static int is_hidden_name(const char *name) {
+    return name && name[0] == '.';
+}
+
+static int add_file(FileData *file, FileData **files, size_t *count, size_t *cap) {
+    if (!file || !files || !count || !cap) {
+        return -1;
+    }
+    if (*count + 1 > *cap) {
+        size_t newcap = (*cap == 0) ? 8 : (*cap * 2);
+        FileData *tmp = (FileData *)realloc(*files, newcap * sizeof(FileData));
+        if (!tmp) {
+            return -1;
+        }
+        *files = tmp;
+        *cap = newcap;
+    }
+    (*files)[*count] = *file;
+    (*count)++;
+    return 0;
+}
+
+static int add_file_by_path(const char *path, FileData **files, size_t *count, size_t *cap) {
+    FileData *file = process_file(path);
+    if (!file) {
+        perror(path);
+        return -1;
+    }
+    if (add_file(file, files, count, cap) != 0) {
+        free_filedata(file);
+        return -1;
+    }
+    free(file);
+    return 0;
+}
+
+static int traverse_dir(const char *dirpath, const char *suffix, FileData **files, size_t *count, size_t *cap) {
+    DIR *dir;
+    struct dirent *ent;
+
+    dir = opendir(dirpath);
+    if (!dir) {
+        perror(dirpath);
+        return -1;
+    }
+
+    while ((ent = readdir(dir)) != NULL) {
+        struct stat st;
+        char *path;
+        size_t path_len;
+
+        if (is_hidden_name(ent->d_name)) {
+            continue;
+        }
+
+        path_len = strlen(dirpath) + 1 + strlen(ent->d_name) + 1;
+        path = (char *)malloc(path_len);
+        if (!path) {
+            perror("malloc");
+            continue;
+        }
+        snprintf(path, path_len, "%s/%s", dirpath, ent->d_name);
+
+        if (stat(path, &st) != 0) {
+            perror(path);
+            free(path);
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            traverse_dir(path, suffix, files, count, cap);
+            free(path);
+            continue;
+        }
+
+        if (S_ISREG(st.st_mode)) {
+            if (has_suffix(ent->d_name, suffix)) {
+                add_file_by_path(path, files, count, cap);
+            }
+        }
+        free(path);
+    }
+
+    closedir(dir);
+    return 0;
+}
+
 int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
-    (void)argc;
-    (void)argv;
-    (void)files;
-    (void)file_count;
+    size_t count = 0;
+    size_t cap = 0;
+    FileData *arr = NULL;
+
+    if (!argv || !files || !file_count || argc < 2) {
+        return -1;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        struct stat st;
+        const char *path = argv[i];
+
+        if (is_hidden_name(path)) {
+            continue;
+        }
+
+        if (stat(path, &st) != 0) {
+            perror(path);
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            traverse_dir(path, DEFAULT_SUFFIX, &arr, &count, &cap);
+        } else if (S_ISREG(st.st_mode)) {
+            add_file_by_path(path, &arr, &count, &cap);
+        }
+    }
+
+    *files = arr;
+    *file_count = count;
     return 0;
 }
 
