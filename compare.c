@@ -149,7 +149,7 @@ int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
     return 0;
 }
 
-static void free_word_list(WordNode *head) {
+void free_word_list(WordNode *head) {
     while (head) {
         WordNode *next = head->next;
         free(head->word);
@@ -423,6 +423,58 @@ Comparison *build_comparisons(FileData *files, size_t file_count, size_t *compar
 }
 
 void print_results(const Comparison *comps, size_t count) {
-    (void)comps;
-    (void)count;
+    if (!comps) {
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        printf("%.5f %s %s\n",
+               comps[i].jsd,
+               comps[i].file1 ? comps[i].file1->path : "",
+               comps[i].file2 ? comps[i].file2->path : "");
+    }
+}
+
+void free_filedata_array(FileData *files, size_t file_count) {
+    if (!files) {
+        return;
+    }
+    for (size_t i = 0; i < file_count; i++) {
+        free(files[i].path);
+        free_word_list(files[i].word_list);
+    }
+    free(files);
+}
+
+void free_comparisons(Comparison *comps) {
+    free(comps);
+}
+
+static int compare_comparisons(const void *a, const void *b) {
+    const Comparison *ca = (const Comparison *)a;
+    const Comparison *cb = (const Comparison *)b;
+
+    if (ca->combined_word_count < cb->combined_word_count) {
+        return 1;
+    }
+    if (ca->combined_word_count > cb->combined_word_count) {
+        return -1;
+    }
+
+    if (ca->file1 && cb->file1 && ca->file1->path && cb->file1->path) {
+        int cmp = strcmp(ca->file1->path, cb->file1->path);
+        if (cmp != 0) {
+            return cmp;
+        }
+    }
+    if (ca->file2 && cb->file2 && ca->file2->path && cb->file2->path) {
+        return strcmp(ca->file2->path, cb->file2->path);
+    }
+    return 0;
+}
+
+void sort_comparisons(Comparison *comps, size_t count) {
+    if (!comps || count == 0) {
+        return;
+    }
+    qsort(comps, count, sizeof(Comparison), compare_comparisons);
 }
