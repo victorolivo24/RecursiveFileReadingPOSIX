@@ -215,7 +215,9 @@ FileData *process_file(const char *path) {
     while ((nread = read(fd, buffer, sizeof(buffer))) > 0) {
         for (ssize_t i = 0; i < nread; i++) {
             char c = buffer[i];
-            if (is_word_char(c)) {
+            if (c == '\'') {
+                continue; /* ignore apostrophes within words */
+            } else if (is_word_char(c)) {
                 char nc = normalize_char(c);
                 if (wlen + 1 >= wcap) {
                     size_t newcap = (wcap == 0) ? 32 : (wcap * 2);
