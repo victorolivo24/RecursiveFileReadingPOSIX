@@ -32,6 +32,22 @@ static void free_filedata(FileData *file) {
     free(file);
 }
 
+static char *xstrdup(const char *s) {
+    size_t len;
+    char *copy;
+
+    if (!s) {
+        return NULL;
+    }
+    len = strlen(s);
+    copy = (char *)malloc(len + 1);
+    if (!copy) {
+        return NULL;
+    }
+    memcpy(copy, s, len + 1);
+    return copy;
+}
+
 FileData *process_file(const char *path) {
     int fd = -1;
     FileData *file = NULL;
@@ -55,7 +71,7 @@ FileData *process_file(const char *path) {
         close(fd);
         return NULL;
     }
-    file->path = strdup(path);
+    file->path = xstrdup(path);
     if (!file->path) {
         close(fd);
         free_filedata(file);
@@ -148,7 +164,7 @@ WordNode *insert_or_increment_word(WordNode **head, const char *word) {
     if (!node) {
         return NULL;
     }
-    node->word = strdup(word);
+    node->word = xstrdup(word);
     if (!node->word) {
         free(node);
         return NULL;
