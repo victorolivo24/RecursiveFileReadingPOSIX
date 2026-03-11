@@ -32,6 +32,18 @@ static int is_hidden_name(const char *name) {
     return name && name[0] == '.';
 }
 
+static int already_collected(FileData *files, size_t count, const char *path) {
+    if (!files || !path) {
+        return 0;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (files[i].path && strcmp(files[i].path, path) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int add_file(FileData *file, FileData **files, size_t *count, size_t *cap) {
     if (!file || !files || !count || !cap) {
         return -1;
@@ -51,6 +63,9 @@ static int add_file(FileData *file, FileData **files, size_t *count, size_t *cap
 }
 
 static int add_file_by_path(const char *path, FileData **files, size_t *count, size_t *cap) {
+    if (already_collected(*files, *count, path)) {
+        return 0;
+    }
     FileData *file = process_file(path);
     if (!file) {
         perror(path);
@@ -397,8 +412,10 @@ Comparison *build_comparisons(FileData *files, size_t file_count, size_t *compar
     }
 
     if (file_count < 2) {
-        fprintf(stderr, "Error: need at least two files to compare.\n");
-        exit(1);
+        if (comparison_count) {
+            *comparison_count = 0;
+        }
+        return NULL;
     }
 
     n = file_count;

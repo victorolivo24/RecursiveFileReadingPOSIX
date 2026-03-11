@@ -90,8 +90,8 @@ int main(int argc, char **argv) {
     size_t comp_count = 0;
 
     /* Example: collect_files uses argv[1..] as file/dir inputs. */
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <file1> <file2> [file3 ...]\n", argv[0]);
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <path1> [path2 ...]\n", argv[0]);
         return 1;
     }
 
@@ -100,12 +100,18 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (file_count < 2) {
+        fprintf(stderr, "Error: need at least two files to compare.\n");
+        free_filedata_array(files, file_count);
+        return 1;
+    }
+
     comps = build_comparisons(files, file_count, &comp_count);
+    sort_comparisons(comps, comp_count);
     print_results(comps, comp_count);
 
-    /* TODO: cleanup resources */
-    (void)comps;
-    (void)files;
+    free_comparisons(comps);
+    free_filedata_array(files, file_count);
 
     return 0;
 }
