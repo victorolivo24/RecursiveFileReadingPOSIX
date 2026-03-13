@@ -11,7 +11,11 @@
 #include <unistd.h>
 #include <math.h>
 
+/* ---- Helpers ---- */
 static void free_filedata(FileData *file);
+static char *xstrdup(const char *s);
+static int ensure_word_capacity(char **buf, size_t *cap, size_t need);
+static int finish_word(FileData *file, char *buf, size_t *len);
 
 static int has_suffix(const char *name, const char *suffix) {
     size_t nlen;
@@ -43,6 +47,10 @@ static const char *basename_ptr(const char *path) {
 
 static int is_hidden_name(const char *name) {
     return name && name[0] == '.';
+}
+
+static int is_hidden_path(const char *path) {
+    return is_hidden_name(basename_ptr(path));
 }
 
 static int already_collected(FileData *files, size_t count, const char *path) {
@@ -82,6 +90,22 @@ static int add_file(FileData *file, FileData **files, size_t *count, size_t *cap
     (*files)[*count] = *file;
     (*count)++;
     return 0;
+}
+
+static char *join_path(const char *dir, const char *name) {
+    size_t len;
+    char *path;
+
+    if (!dir || !name) {
+        return NULL;
+    }
+    len = strlen(dir) + 1 + strlen(name) + 1;
+    path = (char *)malloc(len);
+    if (!path) {
+        return NULL;
+    }
+    snprintf(path, len, "%s/%s", dir, name);
+    return path;
 }
 
 static int add_file_by_path(const char *path, FileData **files, size_t *count, size_t *cap) {
@@ -132,19 +156,16 @@ static int traverse_dir(const char *dirpath, const char *suffix, FileData **file
     while ((ent = readdir(dir)) != NULL) {
         struct stat st;
         char *path;
-        size_t path_len;
 
         if (is_hidden_name(ent->d_name)) {
             continue;
         }
 
-        path_len = strlen(dirpath) + 1 + strlen(ent->d_name) + 1;
-        path = (char *)malloc(path_len);
+        path = join_path(dirpath, ent->d_name);
         if (!path) {
             perror("malloc");
             continue;
         }
-        snprintf(path, path_len, "%s/%s", dirpath, ent->d_name);
 
         if (stat(path, &st) != 0) {
             perror(path);
@@ -193,9 +214,7 @@ int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
     for (int i = 1; i < argc; i++) {
         struct stat st;
         const char *path = argv[i];
-        const char *base = basename_ptr(path);
-
-        if (is_hidden_name(base)) {
+        if (is_hidden_path(path)) {
             continue;
         }
 
@@ -229,6 +248,7 @@ int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
     return had_error ? 1 : 0;
 }
 
+/* ---- Cleanup ---- */
 void free_word_list(WordNode *head) {
     while (head) {
         WordNode *next = head->next;
@@ -261,6 +281,36 @@ static char *xstrdup(const char *s) {
     }
     memcpy(copy, s, len + 1);
     return copy;
+}
+
+static int ensure_word_capacity(char **buf, size_t *cap, size_t need) {
+    if (need <= *cap) {
+        return 0;
+    }
+    size_t newcap = (*cap == 0) ? 32 : (*cap * 2);
+    while (newcap < need) {
+        newcap *= 2;
+    }
+    char *tmp = (char *)realloc(*buf, newcap);
+    if (!tmp) {
+        return -1;
+    }
+    *buf = tmp;
+    *cap = newcap;
+    return 0;
+}
+
+static int finish_word(FileData *file, char *buf, size_t *len) {
+    if (*len == 0) {
+        return 0;
+    }
+    buf[*len] = '\0';
+    if (!insert_or_increment_word(&file->word_list, buf)) {
+        return -1;
+    }
+    file->total_words++;
+    *len = 0;
+    return 0;
 }
 
 FileData *process_file(const char *path) {
@@ -297,35 +347,23 @@ FileData *process_file(const char *path) {
         for (ssize_t i = 0; i < nread; i++) {
             char c = buffer[i];
             if (isspace((unsigned char)c)) {
-                if (wlen > 0) {
-                    word[wlen] = '\0';
-                    if (!insert_or_increment_word(&file->word_list, word)) {
-                        close(fd);
-                        free(word);
-                        free_filedata(file);
-                        return NULL;
-                    }
-                    file->total_words++;
-                    wlen = 0;
+                if (finish_word(file, word, &wlen) != 0) {
+                    close(fd);
+                    free(word);
+                    free_filedata(file);
+                    return NULL;
                 }
                 continue;
             }
 
             if (is_word_char(c)) {
-                char nc = normalize_char(c);
-                if (wlen + 1 >= wcap) {
-                    size_t newcap = (wcap == 0) ? 32 : (wcap * 2);
-                    char *tmp = (char *)realloc(word, newcap);
-                    if (!tmp) {
-                        close(fd);
-                        free(word);
-                        free_filedata(file);
-                        return NULL;
-                    }
-                    word = tmp;
-                    wcap = newcap;
+                if (ensure_word_capacity(&word, &wcap, wlen + 2) != 0) {
+                    close(fd);
+                    free(word);
+                    free_filedata(file);
+                    return NULL;
                 }
-                word[wlen++] = nc;
+                word[wlen++] = normalize_char(c);
             }
             /* Ignore non-word, non-whitespace characters (punctuation). */
         }
@@ -338,15 +376,11 @@ FileData *process_file(const char *path) {
         return NULL;
     }
 
-    if (wlen > 0) {
-        word[wlen] = '\0';
-        if (!insert_or_increment_word(&file->word_list, word)) {
-            close(fd);
-            free(word);
-            free_filedata(file);
-            return NULL;
-        }
-        file->total_words++;
+    if (finish_word(file, word, &wlen) != 0) {
+        close(fd);
+        free(word);
+        free_filedata(file);
+        return NULL;
     }
 
     close(fd);
