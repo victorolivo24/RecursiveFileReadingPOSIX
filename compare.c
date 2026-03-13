@@ -50,8 +50,17 @@ static int already_collected(FileData *files, size_t count, const char *path) {
         return 0;
     }
     for (size_t i = 0; i < count; i++) {
-        if (files[i].path && strcmp(files[i].path, path) == 0) {
-            return 1;
+        if (files[i].path) {
+            char *canon = realpath(files[i].path, NULL);
+            if (canon) {
+                int match = strcmp(canon, path) == 0;
+                free(canon);
+                if (match) {
+                    return 1;
+                }
+            } else if (strcmp(files[i].path, path) == 0) {
+                return 1;
+            }
         }
     }
     return 0;
@@ -93,7 +102,7 @@ static int add_file_by_path(const char *path, FileData **files, size_t *count, s
         return 0;
     }
 
-    FileData *file = process_file(use_path);
+    FileData *file = process_file(path);
     if (!file) {
         perror(path);
         free(resolved);

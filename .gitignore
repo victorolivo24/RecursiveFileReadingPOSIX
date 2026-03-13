@@ -4,3 +4,5 @@ compare
 *.exe
 testdir/
 *.tar
+
+p2tests/
