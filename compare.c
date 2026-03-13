@@ -28,6 +28,19 @@ static int has_suffix(const char *name, const char *suffix) {
     return strcmp(name + (nlen - slen), suffix) == 0;
 }
 
+static const char *basename_ptr(const char *path) {
+    const char *last = path;
+    if (!path) {
+        return NULL;
+    }
+    for (const char *p = path; *p; p++) {
+        if (*p == '/') {
+            last = p + 1;
+        }
+    }
+    return last;
+}
+
 static int is_hidden_name(const char *name) {
     return name && name[0] == '.';
 }
@@ -63,30 +76,48 @@ static int add_file(FileData *file, FileData **files, size_t *count, size_t *cap
 }
 
 static int add_file_by_path(const char *path, FileData **files, size_t *count, size_t *cap) {
-    if (already_collected(*files, *count, path)) {
+    char *resolved = NULL;
+    const char *use_path = path;
+
+    if (!path) {
+        return -1;
+    }
+
+    resolved = realpath(path, NULL);
+    if (resolved) {
+        use_path = resolved;
+    }
+
+    if (already_collected(*files, *count, use_path)) {
+        free(resolved);
         return 0;
     }
-    FileData *file = process_file(path);
+
+    FileData *file = process_file(use_path);
     if (!file) {
         perror(path);
-        return -1;
+        free(resolved);
+        return 1;
     }
     if (add_file(file, files, count, cap) != 0) {
         free_filedata(file);
+        free(resolved);
         return -1;
     }
     free(file);
+    free(resolved);
     return 0;
 }
 
 static int traverse_dir(const char *dirpath, const char *suffix, FileData **files, size_t *count, size_t *cap) {
     DIR *dir;
     struct dirent *ent;
+    int had_error = 0;
 
     dir = opendir(dirpath);
     if (!dir) {
         perror(dirpath);
-        return -1;
+        return 1;
     }
 
     while ((ent = readdir(dir)) != NULL) {
@@ -109,31 +140,42 @@ static int traverse_dir(const char *dirpath, const char *suffix, FileData **file
         if (stat(path, &st) != 0) {
             perror(path);
             free(path);
+            had_error = 1;
             continue;
         }
 
         if (S_ISDIR(st.st_mode)) {
-            traverse_dir(path, suffix, files, count, cap);
+            if (traverse_dir(path, suffix, files, count, cap) != 0) {
+                had_error = 1;
+            }
             free(path);
             continue;
         }
 
         if (S_ISREG(st.st_mode)) {
             if (has_suffix(ent->d_name, suffix)) {
-                add_file_by_path(path, files, count, cap);
+                int rc = add_file_by_path(path, files, count, cap);
+                if (rc > 0) {
+                    had_error = 1;
+                } else if (rc < 0) {
+                    free(path);
+                    closedir(dir);
+                    return -1;
+                }
             }
         }
         free(path);
     }
 
     closedir(dir);
-    return 0;
+    return had_error ? 1 : 0;
 }
 
 int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
     size_t count = 0;
     size_t cap = 0;
     FileData *arr = NULL;
+    int had_error = 0;
 
     if (!argv || !files || !file_count || argc < 2) {
         return -1;
@@ -142,26 +184,40 @@ int collect_files(int argc, char **argv, FileData **files, size_t *file_count) {
     for (int i = 1; i < argc; i++) {
         struct stat st;
         const char *path = argv[i];
+        const char *base = basename_ptr(path);
 
-        if (is_hidden_name(path)) {
+        if (is_hidden_name(base)) {
             continue;
         }
 
         if (stat(path, &st) != 0) {
             perror(path);
+            had_error = 1;
             continue;
         }
 
         if (S_ISDIR(st.st_mode)) {
-            traverse_dir(path, DEFAULT_SUFFIX, &arr, &count, &cap);
+            int rc = traverse_dir(path, DEFAULT_SUFFIX, &arr, &count, &cap);
+            if (rc > 0) {
+                had_error = 1;
+            } else if (rc < 0) {
+                free_filedata_array(arr, count);
+                return -1;
+            }
         } else if (S_ISREG(st.st_mode)) {
-            add_file_by_path(path, &arr, &count, &cap);
+            int rc = add_file_by_path(path, &arr, &count, &cap);
+            if (rc > 0) {
+                had_error = 1;
+            } else if (rc < 0) {
+                free_filedata_array(arr, count);
+                return -1;
+            }
         }
     }
 
     *files = arr;
     *file_count = count;
-    return 0;
+    return had_error ? 1 : 0;
 }
 
 void free_word_list(WordNode *head) {
@@ -231,9 +287,22 @@ FileData *process_file(const char *path) {
     while ((nread = read(fd, buffer, sizeof(buffer))) > 0) {
         for (ssize_t i = 0; i < nread; i++) {
             char c = buffer[i];
-            if (c == '\'') {
-                continue; /* ignore apostrophes within words */
-            } else if (is_word_char(c)) {
+            if (isspace((unsigned char)c)) {
+                if (wlen > 0) {
+                    word[wlen] = '\0';
+                    if (!insert_or_increment_word(&file->word_list, word)) {
+                        close(fd);
+                        free(word);
+                        free_filedata(file);
+                        return NULL;
+                    }
+                    file->total_words++;
+                    wlen = 0;
+                }
+                continue;
+            }
+
+            if (is_word_char(c)) {
                 char nc = normalize_char(c);
                 if (wlen + 1 >= wcap) {
                     size_t newcap = (wcap == 0) ? 32 : (wcap * 2);
@@ -248,17 +317,8 @@ FileData *process_file(const char *path) {
                     wcap = newcap;
                 }
                 word[wlen++] = nc;
-            } else if (wlen > 0) {
-                word[wlen] = '\0';
-                if (!insert_or_increment_word(&file->word_list, word)) {
-                    close(fd);
-                    free(word);
-                    free_filedata(file);
-                    return NULL;
-                }
-                file->total_words++;
-                wlen = 0;
             }
+            /* Ignore non-word, non-whitespace characters (punctuation). */
         }
     }
 

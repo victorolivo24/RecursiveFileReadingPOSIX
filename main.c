@@ -64,20 +64,20 @@ int main(void) {
 #elif defined(TEST_TOKENIZER)
 int main(int argc, char **argv) {
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <file>\\n", argv[0]);
+        fprintf(stderr, "Usage: %s <file>\n", argv[0]);
         return 1;
     }
 
     FileData *file = process_file(argv[1]);
     if (!file) {
-        fprintf(stderr, "Error: failed to process file.\\n");
+        fprintf(stderr, "Error: failed to process file.\n");
         return 1;
     }
 
-    printf("File: %s\\n", file->path);
-    printf("Total words: %zu\\n", file->total_words);
+    printf("File: %s\n", file->path);
+    printf("Total words: %zu\n", file->total_words);
     for (WordNode *node = file->word_list; node; node = node->next) {
-        printf("%s\\t%zu\\t%.6f\\n", node->word, node->count, node->freq);
+        printf("%s\t%zu\t%.6f\n", node->word, node->count, node->freq);
     }
 
     return 0;
@@ -88,6 +88,7 @@ int main(int argc, char **argv) {
     size_t file_count = 0;
     Comparison *comps = NULL;
     size_t comp_count = 0;
+    int had_error = 0;
 
     /* Example: collect_files uses argv[1..] as file/dir inputs. */
     if (argc < 2) {
@@ -95,9 +96,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (collect_files(argc, argv, &files, &file_count) != 0) {
-        fprintf(stderr, "Error: failed to collect files.\n");
-        return 1;
+    {
+        int rc = collect_files(argc, argv, &files, &file_count);
+        if (rc < 0) {
+            fprintf(stderr, "Error: failed to collect files.\n");
+            return 1;
+        }
+        if (rc > 0) {
+            had_error = 1;
+        }
     }
 
     if (file_count < 2) {
@@ -107,12 +114,16 @@ int main(int argc, char **argv) {
     }
 
     comps = build_comparisons(files, file_count, &comp_count);
+    if (!comps) {
+        free_filedata_array(files, file_count);
+        return 1;
+    }
     sort_comparisons(comps, comp_count);
     print_results(comps, comp_count);
 
     free_comparisons(comps);
     free_filedata_array(files, file_count);
 
-    return 0;
+    return had_error ? 1 : 0;
 }
 #endif

@@ -1,0 +1,6 @@
+compare
+*.o
+*.out
+*.exe
+testdir/
+*.tar
