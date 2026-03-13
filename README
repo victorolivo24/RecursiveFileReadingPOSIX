@@ -1,0 +1,91 @@
+CS214 Project 2 - compare
+
+Names:
+- Victor Olivo (vmo32)
+- Yasser Zguiouar (yz1474)
+
+Testing Plan
+
+The program was tested on the Rutgers iLab environment using a variety of files and directories to validate each requirement of the assignment.
+
+1. Basic functionality
+Two explicit files were compared.
+
+Example:
+
+echo "spam eggs bacon spam" > a.txt
+echo "spam spam eggs" > b.txt
+./compare a.txt b.txt
+
+Verified that the program prints a single JSD comparison with the correct format.
+
+2. Recursive directory traversal
+Created a directory with nested subdirectories.
+
+mkdir testdir
+mkdir testdir/sub
+echo "hello world hello" > testdir/a.txt
+echo "hello hello world" > testdir/sub/b.txt
+./compare testdir
+
+Verified that files in subdirectories were included.
+
+3. Hidden file handling
+Created hidden files and directories.
+
+echo "hidden content" > testdir/.hidden.txt
+mkdir testdir/.secret
+
+Verified that files beginning with . were skipped.
+
+4. Error handling
+Created an unreadable file.
+
+touch testdir/bad.txt
+chmod 000 testdir/bad.txt
+./compare testdir
+
+Verified that the program prints Permission denied using perror() and continues processing other files.
+
+5. Tokenization tests
+Tested punctuation and apostrophes.
+
+echo "I can't understand thieves' cant." > p1.txt
+echo "i cant understand thieves cant" > p2.txt
+./compare p1.txt p2.txt
+
+Verified that punctuation is ignored and words are treated case-insensitively.
+
+6. Hyphen handling
+Tested words containing hyphens.
+
+echo "state-of-the-art model" > h1.txt
+echo "state-of-the-art model" > h2.txt
+./compare h1.txt h2.txt
+
+Verified that hyphens are treated as word characters.
+
+7. Known JSD example
+Used the example from the assignment:
+
+echo "hi there hi there" > f1.txt
+echo "hi hi out there" > f2.txt
+./compare f1.txt f2.txt
+
+Verified that JSD is approximately 0.3945.
+
+8. Edge cases
+Tested:
+- single file input
+- empty file
+- explicit file combined with directory argument
+- duplicate file detection
+
+Verified that the program reports an error if fewer than two files are collected.
+
+9. Memory testing
+The program was tested using Valgrind:
+
+valgrind --leak-check=full ./compare testdir
+
+Valgrind reported 0 memory leaks and 0 invalid memory accesses.
